@@ -1,0 +1,805 @@
+---
+title: "ENVIRON 362 Population Viability Analysis Lab"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+### Population viablity analysis
+
+Population viability analysis (PVA) is a commonly used tool in conservation biology. It can take various forms, but at its core it is simply a quantitative analysis of a species' population dynamics with the aim of assessing a population's (or species') chances of long term viability (usually this is framed in the context of the inverse of viability: extinction risk). 
+
+PVAs start with population models that are based on demographic data collected in the field on the species of interest. These data are used to build a mathematical representation of the population that reflects our best understanding of how the species' population size changes over time (in other words, its population dynamics). Once a realistic model is achieved, we can use simulations to assess extinction risk based on chance (stochastic) events, both demographic and environmental, and various threats (e.g., hunting, habitat loss, habitat fragmentation, predation, disease). 
+
+The results of PVAs are often used to inform conservation and management policy; they are also commonly used to assess a species' extinction status by the IUCN. In lab today we will be exploring a simple PVA model from a large North American mammal, the grizzly bear. 
+
+#### Preliminary setup 
+
+As with the life history data exploration a few weeks ago, we need to do some basic preparation before we begin. Here we add a simple convenience function that will help us to plot data later.
+
+```{r include=FALSE}
+
+makeTransparent <- function(black, alpha = 200) {
+     newColor <- col2rgb(black)
+     apply(newColor, 2, function(curcoldata)			{
+          rgb(red = curcoldata[1],
+               green = curcoldata[2],
+               blue = curcoldata[3],
+               alpha = alpha,
+               maxColorValue = 255)
+     })
+}
+tBlack  <- makeTransparent("gray40")
+tRed    <- makeTransparent("red")
+tOrange <- makeTransparent("orange")
+
+```
+
+
+
+#### Introduction 
+
+Today we will explore a simple population viability analysis of grizzly bears in Yellowstone National Park. Grizzly bears (Ursus arctos horribilus) are listed as threatened by the USFWS for most of the lower 48 states, with a few exceptions in areas where they are listed as 'experimental, non-essential'.  (This status usually is associated with reintroduced carnivore populations, so that they can be killed in the case of livestock conflicts.) There has been considerable discussion and debate about the possible "delisting" (i.e., removing from the list of threatened species) of grizzly bears in the Yellowstone region because of recent population growth, geographic expansion, and demographic trends. It is unclear, however, whether the current population has a sufficiently low risk of extinction to warrant delisting.  Thus, this is an excellent example of a situation in which a PVA is useful.
+
+Credit: This lab was originally based on materials from Prof. Scott Creel's BIOL 521 Conservation Biology class at Montana State University; some of the text and code is drawn directly from materials at: http://www.montana.edu/screel/teaching/bioe-440r-521/course-outline/module-5.html. The data come from Eberhardt et al (1986) and Haroldson et al (1999). (Since then, this lab has been updated to include carrying capacity and associated density dependence, turn the PVA into a function, and add lab Qs.)
+
+#### Data and basic trends 
+
+The basic data set is an index of population size that includes information from several types of monitoring, including aerial counts and data from individually-known, radio-collared bears. The data set is about as simple as can be: it is a list of years (1959-1996) and the annual counts of bears each year. Because the data are so simple, we enter them in directly rather than reading them from a file.
+
+```{r include=FALSE}
+
+year <- seq(1959, 1996)
+
+N <- c(44, 47, 46, 44, 46, 45, 46, 40, 39, 39, 42, 39, 41, 40, 
+       33, 36, 34, 39, 35, 34, 38, 36, 37, 41, 39, 51,
+       47, 57, 48, 60, 65, 74, 69, 65, 57, 70, 81, 99)
+
+```
+
+We can draw a simple plot to look at how bear population sizes have changed over the 38 years:
+
+```{r}
+
+plot(N ~ year, xlab = "Year", ylab = "Population size",
+     pch = 19, ylim=c(0, 100), las = 1)
+
+```
+
+What does the trend look like? How would you characterize the dynamics of the grizzly bear population in Yellowstone?
+
+-- *[enter short answer here. Leave the two dashes, please, it makes it easier to grade!]*
+
+As we discussed in the population ecology lecture in class, a fundamental attribute of a population is its intrinsic rate of increase (r). Here we calculate annual growth rates for the bear population:
+
+```{r include=FALSE}
+
+r = log(N[-1] / N[-length(N)]) 
+r
+
+```
+
+Look at the range of calculated r values. Note that in some years the calculated annual growth rate is positive, and some years it is negative. This is what we would expect based on examination of the plot above. 
+
+We can calculate some basic statistics on our annual population growth rates and look at a histogram:
+
+```{r}
+
+summary(r)
+hist(r, las = 1)
+
+```
+
+and see how population growth rates varied over the sampling period:
+
+```{r}
+
+plot(r ~ year[1:37], xlab = "Year", 
+     pch = 16, col = tBlack, las = 1,
+     ylab =  "population growth rate (r)")
+
+```
+
+We can add a linear trend line to see how population growth rates have changed over the sampling period.
+
+```{r}
+
+plot(r ~ year[1:37], xlab = "Year", 
+     pch = 16, col = tBlack, las = 1,
+     ylab =  "population growth rate (r)")
+abline(lm(r ~ year[1:37]))
+
+```
+
+Our plot of raw data indicate rapid population growth starting around 1980.
+
+```{r}
+
+plot(N ~ year, 
+     xlab = "Year", ylab = "Population size",
+     pch = 19, ylim=c(0, 100), las = 1)
+abline(v = 1980, lty = 2, col = "gray40")
+
+```
+
+We can connect the points to make the year to year changes clearer:
+
+```{r}
+
+plot(N ~ year, 
+     xlab = "Year", ylab = "Population size",
+     pch = 19, ylim=c(0, 100), las = 1, 
+     type = "o", cex = 0.75)
+
+```
+
+This looks, superficially at least, like exponential population growth, the pattern we would expect for a population below carrying capacity (K, see class 17). We can fit an exponential model to these data and see how closely the actual dynamics match the trajectory predicted for simple exponential growth over the same period. For each year, we need to determine the expected population size with exponential growth, using an exponential model based on our average observed rates of increase for the population. The code below calculates this and adds the line to our plot.
+
+```{r}
+
+plot(N ~ year, 
+     xlab = "Year", ylab = "Population size",
+     pch = 19, ylim = c(0, 100), type = "o", 
+     cex = 0.75, las = 1, col = tBlack)
+geomean <- mean(r)
+lines(year, N[1] * exp(geomean) ^ (0:(length(N)-1)),
+      lty = 1, col = tOrange, 
+      type = "o", pch = 19, cex = 0.75)
+legend (1960, 100, c("observed counts",
+                     "exponential model prediction"),
+        lty = c(1, 1), col = c(tBlack, tOrange),
+        pch = c(19, 19), bty = "n", 
+        pt.cex = 0.75, cex = 0.75)
+
+```
+
+How well does the exponential model fit the observed data?
+
+-- *[enter answer here]*
+
+The exponential growth model matches the final population size (this is not surprising, as we set the parameters of our exponential model using our observed data). The relationship of the observed points (gray) to the exponential growth model (orange) indicate the true dynamics were more complex than exponential growth with a constant per capita growth rate (r). The growth rate varied through time: in a general sense it was negative until the early 1970s, remained more or less constant around zero through the late 1970s, then became strongly positive after 1980. Our simple simple PVA must therefore, at a minimum, take the observed variation in growth rates into account.
+
+Our observed variation in growth rate (r) includes both real variation in the growth rate and sampling error (apparent variation in growth that is due to the fact that our measurements are imprecise). A more thorough analysis would removed variance due to sampling error when projecting population size into the future. Here, however, we will ignore sampling error for our projections.
+
+#### Demographic stochasticity
+
+The basic goal of PVA is to project population dynamics into the future (forecasting) and calculate the likelihood that a population will go extinct in some given period of time.
+
+First we define a threshold population size that we consider unacceptable.  For true local extinction, this would be zero. Here we set it equal to 48, which is the threshold required by the original 1982 USFWS Grizzly Bear Recovery Plan, and by the amended plan from 1993. This is one of three criteria that the USFWS considers in discussions about whether to remove the bear's threatened status.
+
+```{r}
+
+threshold <- 48  
+
+```
+
+Next we set the number of years to project forward in time. Here we select 30 years beyond the initial data set and therefore we set the value at 68:  38 years of data, plus 30 year projection.
+
+```{r}
+
+project <- 68
+
+```
+
+We also set the number of model iterations to perform in our simulations. We'll do 1,000 here, so that calculations go quickly. A more formal simulation would do more like 100,000 or 1,000,000, but this should give us a reasonable sense without having to wait for a larger number of simulations.
+
+```{r}
+
+runs <- 1000  
+
+```
+
+Now we have set our initial parameters, we create a simple model to simulate population sizes over time for the specified number of years and iterations. We use a stochastic exponential growth model, which randomly draws reproductive rates each year from the distribution of observed rates in our initial data.
+
+```{r echo=FALSE}
+
+# initial values
+
+N0 <- N[1]                                # set initial population size
+stoch.pop  <- matrix(NA, project, runs)   # create matrix to store values
+stoch.pop[1, ] <- N0                      # input initial population size
+set.seed(16)                              # ensure random draws consistent
+geomean <- mean(r)                        # set mean r
+sd.r    <- sd(r)                          # set standard deviation in r
+
+# simulation
+
+for (i in 1:runs){	
+     # looping over 1000 runs of the stochastic model
+          for (t in 2:project){
+               # and looping over 68 years of projection
+               # within each of 1000 runs
+                    stoch.r = rnorm(1, geomean, sd.r)		                                                              # draw a random value for intrinsic rate of increase
+                        # based on the observed r values
+                    stoch.pop[t, i] = stoch.pop[(t  -1), i] + 
+                                      stoch.pop[(t  -1), i] * stoch.r	  
+                        # and project one time step from 
+                        # the current pop size
+                    if(stoch.pop[t, i] <= threshold) break  		                                # leave the loop if pop <= threshold
+          }
+}
+
+```
+
+Below we see the first random run of the data, which is a single simulation of the population dynamics over the 68 year period.
+
+```{r echo=FALSE}
+
+years <- seq(1959, 2026)
+stoch.pop[is.na(stoch.pop)] <-  0
+plot(stoch.pop[,1] ~ years, type = "l", las = 1,
+     xlab = "year", ylab = "simulated population size", 
+     ylim = c(0, 500), col = tBlack)
+
+```
+
+What happened in the first simulation? 
+
+--*[enter answer here]*
+
+Now we add the next 5 runs to the plot
+
+```{r echo=FALSE}
+
+plot(stoch.pop[,1] ~ years, 
+     type = "l", xlab = "year", 
+     ylab = "simulated population size", 
+     las = 1, ylim = c(0, 500), col = tBlack)
+for (i in 2:6){	
+     lines(stoch.pop[,i] ~ years, type = "l", 
+           col = tBlack)
+}
+
+```
+
+In most simulations, you will see considerable variation among these first six runs. This is simply the result of stochasticity (randomness) in population growth rates.
+
+Now, we plot all 1,000 simulation runs. Simulations that lead to extinction are red.
+
+```{r echo=FALSE}
+
+years <- seq(1959, 2026)
+stoch.pop[is.na(stoch.pop)] <-  0
+plot(stoch.pop[,1] ~ years, type = "l", 
+     xlab = "year", 
+     ylab = "simulated population size", 
+     lwd =  0.5, las = 1,
+     ylim = c(0, 500), 
+     col = ifelse(stoch.pop[68, 1] == 0, 
+                  tRed, tBlack))
+for (i in 1:runs){	
+     lines(stoch.pop[,i] ~ years, 
+           type = "l", lwd =  0.5,
+           col = ifelse(stoch.pop[68, i] == 0, 
+                        tRed, tBlack))
+}
+
+```
+
+As we can see, simple random variation in population growth rates leads to hugely variable outcomes from simulations. Let's look at a histogram of final (ending) population sizes from these 1,000 simulations:
+
+```{r}
+
+hist(stoch.pop[68, ], xlab = "simulated population size", 
+     breaks = 40, las = 1, 
+     main = "Yellowstone grizzlies after 68 years")
+abline(v = threshold, col = "blue", lty = 3, lwd = 3)
+
+```
+
+Obviously an awful lot of these simulations result in ending population sizes below the threshold population size we set (the dotted blue line), which we can interpret as local extinction. Let's calculate the percent of runs that ended in local extinction:
+
+```{r}
+
+percent.extinct <- (runs - length(which(stoch.pop[project, ] 
+                                         > 0))) / runs * 100 
+percent.extinct
+
+```
+
+This is the proportion of the simulated runs that ended in local populations going extinct. Note that this simple model is just making random draws from a distribution of population growth rates at each generation. So, for a population that starts at the small size we started at here (n = 44), extinction probabilities are very high, just due to demographic stochasticity (which here is modeled as random draws from the observed distribution of population growth rates).
+
+We can also calculate how long it took (in years) the populations that went extinct to drop below the extinction threshold. The code below does this, and plots the amount of time in a histogram. The median time is indicated by the blue line.
+
+```{r}
+
+time <- NULL          # create an empty vector to hold results
+for (i in 1:runs){	  # loop through all the iterations
+                      # of the simulation
+          t<-max(which(stoch.pop[ ,i] > 0)) 
+                      # Find the maximum time
+                      # when Population was >0
+          time<-c(time, t)	 # add this value to the end
+                             # of a vector storing the times
+}				  # end the loop
+
+time.to.extinction <- time[which(time < 68)]
+
+hist(time.to.extinction, breaks = 20, las = 1)
+abline(v = median(time.to.extinction), 
+       lwd = 1.5, col = "blue")
+median(time.to.extinction)
+
+```
+
+What is the approximate median time to extinction for your simulations?
+
+--*[enter short answer here]*
+
+While the exact results of the simulations will differ each time this is run, the general pattern will be that a large proportion of populations go extinct (i.e., drop below the threshold we established above) and that those that do go extinct quickly (usually < 5 years).
+
+What do these results suggest to you about the wisdom of changing the conservation status of grizzly bears and thereby reducing the level of protection they would receive?
+
+--*[enter answer here]*
+
+
+#### Adding carrying capacity
+
+Here is the distribution of simulated population sizes at the end of the 1,000 initial simulations.
+
+```{r}
+
+hist(stoch.pop[68, ], xlab = "simulated population size", 
+     breaks = 20, las = 1, 
+     main = "Yellowstone grizzlies after 68 years")
+rug(stoch.pop[68, ], col = tOrange, lwd = 2)
+
+```
+
+You can see that there are a few ending population sizes that are huge. It will vary among simulations, but likely the simulations ended in a few ending population sizes in the thousands. (I added orange tick marks (called a rug) below the x-axis to make it easier to see where rare observations are at large values of x, since the histogram bars are very low for them). This was the result of us not putting any cap on how large the population could grow. This is highly unrealistic, and resulted in predictions of extinction risk and mean time to extinction that, while pretty bad, are actually somewhat optimistic. 
+
+To add a bit of realism, we'll build in an upper cap on how large the population can grow. Here we will add some code inside our simulation that scales the population growth rate, r, based on whether the population is above or below the carrying capacity, K. We do this by multiplying r times ((K-N)/K), as we talked about in class. When the population (N) is well below K, the scaling is approximately equal to 1, so populations grow close to their maximum rates. As N approaches K, growth rates slow, and are 0 when N = K.
+
+Because we'll be running our simulation bunch of times, and we'd like the code to be more compact, we'll create a custom simulation function, called `griz_pop_sim`. This function takes an initial starting population size, N0, and carrying capacity, K, and runs the population simulation. We include default starting population size as the real starting population size N[1], or 44 bears, and carrying capacity as 1,000, because current thinking is that the carrying capacity of grizzly bears in the broader Yellowstone ecosystem is about 1,000. 
+
+Here is our custom function. We run the code once to load the function, but noting will happen.
+
+```{r echo=FALSE}
+
+griz_pop_sim <- function(N0 = N[1],      # define function, set default values
+                         K = 1000,
+                         viz = TRUE) {
+
+stoch.pop  <- matrix(NA, project, runs)
+stoch.pop[1, ] <- N0
+geomean <- mean(r)
+sd.r    <- sd(r)
+
+
+for (i in 1:runs)
+     {	
+     # looping over 1000 runs of the stochastic model
+          for (t in 2:project){
+               # and looping over 68 years of projection
+               # within each of 1000 runs
+                    stoch.r = rnorm(1, geomean, sd.r)	
+                      # draw a random value for intrinsic rate of increase
+                      # based on the observed r values
+                    stoch.r.dd = stoch.r * ((K - stoch.pop[t -1, i])/K)
+                      # make r density dependent
+                      # by adding term ((K-N)/K)
+                    stoch.pop[t, i] = stoch.pop[(t  -1), i] + 
+                                      stoch.pop[(t  -1), i] * stoch.r.dd	
+                       # and project one time step from 
+                       # the current pop size
+                    if(stoch.pop[t, i] <= threshold) break  		                                  # leave the loop if pop <= threshold
+               }
+}
+
+
+# calculate the percent of simulations that go extinct.
+stoch.pop[is.na(stoch.pop)] <-  0   
+percent.extinct <- (runs - length(which(stoch.pop[project, ] 
+                                         > 0))) / runs * 100 
+
+if (viz == TRUE) {
+# plot the simulation
+   plot(stoch.pop[,1] ~ years, 
+        type = "l", xlab = "year", 
+        ylab = "simulated population size", 
+        lwd =  0.5, las = 1,
+        ylim = c(0, 500), 
+        col = ifelse(stoch.pop[68, 1]== 0, 
+                     tRed, tBlack),
+     main =  paste("N0 =", N0, ", K = ", K,
+                   "\n % extinct =", percent.extinct))
+    for (i in 1:runs){	
+     lines(stoch.pop[,i] ~ years, 
+           type = "l", lwd =  0.5,
+           col = ifelse(stoch.pop[68, i]== 0, 
+                        tRed, tBlack))
+      }
+   }
+return(paste("Percent simulations leading to extinction = ", percent.extinct,"%"))
+
+}
+
+```
+
+Here we run the stimulation. It will use the default values for initial population size (N = 44) and carrying capacity (K = 1,000) to run the simulation, produce the plot, and calculate the percent of simulations that lead to extinction and return that value in the console. The extinction probability is also included above the plot "% extinct =" along with the starting population size and carrying capacity for that set of simulations.
+
+```{r}
+
+griz_pop_sim()
+
+```
+
+Run the code above a few times, and notice how the plot and percent extinct vary between them. We expect this from a stochastic simulation, as we do from the real world.
+
+In general, the simulations that include K don't look so different from our very first simulation that lacked a carrying capacity. This isn't surprising, as few of our simulated runs went above 1,000 bears, given we only projected the population for 68 years. But let's imagine the carrying capacity was lower, say 250 bears. Here we set a new K, and run our simulation again. We add a dotted orange line at the new carrying capacity.
+
+```{r}
+
+griz_pop_sim(K = 250)
+abline(h = 250, col = tOrange, lwd = 2 , lty = 3)
+
+```
+
+Note what happened to the proportion of simulations that went extinct now. It is likely just slightly higher than before. What would happen if the habitat quality declined dramatically to a carrying capacity of 75 bears?
+
+```{r}
+
+griz_pop_sim(K = 75)
+
+```
+
+This would be bad; the percent extinct is close to 100%. So clearly, manipulating baseline carrying capacity can have important effects. At the end of the lab we'll examine how directional changes in K can have large effects, too.
+
+#### Effects of population size
+
+Imagine we double the starting population size. What do you think will happen to extinction probabilities? To time to extinction?
+
+--*[enter answers here]*
+
+Let's test your intuition below. We'll run the simulation twice, and plot the outcomes of the two next to each other. For each, we'll set K at 500:
+
+```{r}
+
+par(mfrow=c(1,2))
+griz_pop_sim(N0 = N[1], K = 500)
+griz_pop_sim(N0 = 2 * N[1], K = 500)
+
+```
+
+Compare plots of the two simulations and the percent of the two simulations that led to extinction. What has happened to the percent of population runs that lead to extinction when the initial population size is doubled? 
+
+--*[enter answer here]*
+
+Now, let's increase the starting population by an order of magnitude (10x), and plot it along side the other two. You may want to zoom in on the plot to get a better sense of the result (click the "Zoom" button in the plot window). The initial population size for each run is indicated by the blue line.
+
+```{r}
+
+par(mfrow=c(1, 3))
+griz_pop_sim(N0 = N[1], K = 500)
+abline(h = N0, col = "blue", lwd = 2)
+griz_pop_sim(N0 = 2 * N[1], K = 500)
+abline(h = 2 * N[1], col = "blue", lwd = 2)
+griz_pop_sim(N0 = 10 * N[1], K = 500)
+abline(h = 10 * N[1], col = "blue", lwd = 2)
+
+```
+
+What have you learned about the importance of initial population size?
+
+--*[enter answer here]*
+
+
+#### Effects of environmental stochasticity
+
+The simulations we did above included only random variation in reproductive rates (one type of demographic stochasticity). Of course, the habitats animals occupy are not constant, so our PVA models should include some environmental stochasticity as well. Now we'll add this in.
+
+There are lots of ways to incorporate environmental stochasticity. Here we use a simple rule to randomly assign each year in our simulation as either a "good year" or a "bad year". We base these definitions on the effects of the environment on population growth rates, r: in "bad years" populations decline (r < 0) and in good years they grow (r > 0).
+
+To do this, we'll modify our original function, creating a new one called `griz_pop_sim_env`. We set the probability of any year being a good or bad year as 50/50 as the default. So at each time step, our simulation flips a virtual coin to decide if it will be a good or bad year. For good years, we assign the mean positive value of r from our data set, for bad years, we assign the mean negative r value. Here we set the default carrying capacity at 500. This code creates the simulation function.
+
+```{r}
+
+griz_pop_sim_env <- function(N0 = N[1], 
+                         K = 500,
+                         viz = TRUE,
+                         geomean.bad = mean(r[which(r < 0)]),  
+                              # r in bad years
+                         geomean.good = mean(r[which(r > 0)]),
+                              # r in good years
+                         prob.bad = 0.5) {   
+                              # probability of being a bad year
+
+stoch.pop.env  <- matrix(NA, project, runs)
+stoch.pop.env[1, ] <- N0
+
+sd.r    <- sd(r)
+for (i in 1:runs)
+     {	
+     # looping over 1000 runs of the stochastic model
+          for (t in 2:project){
+               # and looping over 68 years of projection
+               # within each of 1000 runs
+                    geomean.env <- sample(x = c(geomean.bad,
+                                             geomean.good), 
+                                             size = 1,
+                                             prob = c(prob.bad, (1- prob.bad)),
+                                             replace = T)  # Sample 1
+                                                           # number form
+                                                           # vector x
+                                                           # with defined
+                                                           # probabilities
+                    stoch.r = rnorm(1, geomean.env, sd.r)		  
+                      # draw a random value for intrinsic rate of increase
+                      # based on the observed r values
+                    stoch.r.dd = stoch.r * ((K - stoch.pop.env[t -1, i])/K)
+                      # make r density dependent
+                      # by adding term ((K-N)/K)
+                    stoch.pop.env[t, i] = stoch.pop.env[(t  -1), i] + 
+                                      stoch.pop.env[(t  -1), i] * stoch.r.dd	
+                       # and project one time step from 
+                       # the current pop size
+                    if(stoch.pop.env[t, i] <= threshold) break  		                               # leave the loop if pop <= threshold
+               }
+     }
+
+stoch.pop.env[is.na(stoch.pop.env)] <-  0
+percent.extinct <- (runs - length(which(stoch.pop.env[project, ] 
+                                         > 0))) / runs * 100 
+
+if (viz == TRUE) {
+
+# plot the simulation
+   plot(stoch.pop.env[,1] ~ years, type = "l", xlab = "year", 
+     ylab = "simulated population size", lwd =  0.5, las = 1,
+     ylim = c(0, 500), 
+     col = ifelse(stoch.pop.env[68, 1]== 0, tRed, tBlack),
+     main =  paste("With environ. stoch.",
+                  "\nN0 =", N0, ", K = ", K,
+                   "\n % extinct =", percent.extinct))
+    for (i in 1:runs){	
+     lines(stoch.pop.env[,i] ~ years, type = "l", lwd =  0.5,
+           col = ifelse(stoch.pop.env[68, i]== 0, tRed, tBlack))
+      }
+
+# calculate the percent of simulations that go extinct
+percent.extinct <- (runs - length(which(stoch.pop.env[project, ] 
+                                         > 0))) / runs * 100 
+return(paste("Percent simulations leading to extinction = ", percent.extinct,"%"))
+   
+   }
+}
+
+```
+
+Now we'll run the new function, and compare it to a simulation without environmental stochasticity. The simulation with environmental stochasticity is on the left, the one without is one the right.
+
+```{r}
+
+par(mfrow=c(1, 2))
+griz_pop_sim_env()
+griz_pop_sim(K = 500)
+
+```
+
+The two simulations are likely to be pretty similar; run the code a few times to see how the results vary across simulations. This is because we modeled good years and bad years to each occur 50% of the time, and the population growth rates in these years were based on averages of positive and negative r values, respectively. Now let's change the comparison, comparing the probability of bad years of 50% (on the left) to the probability of 60% (right).
+
+```{r}
+
+par(mfrow=c(1, 2))
+griz_pop_sim_env()                # 50% probability, the default
+griz_pop_sim_env(prob.bad = 0.6)  # 60% probability
+
+```
+
+Run the comparison several times. How does the 10% increase in the probability of bad years affect the extinction probability?
+
+--*[enter answer here]*
+
+Finally, let's imagine an environment in which there were rarer, but more extreme bad years. Arbitrarily, let's imagine that once every 25 years we get a year that is so bad that the observed reproductive rates are twice as bad as any year in our data set; the rest of the years are random draws from the observed distribution of growth rates (as in our initial simulations). Compare the extinction probabilities of the simulation with more frequent mild environmental variations (left) and the more extreme, rarer variation (right):
+
+```{r}
+
+par(mfrow=c(1, 2))
+griz_pop_sim_env()     
+griz_pop_sim_env(prob.bad = 1/25,
+                 geomean.bad = 2*(min(r)),
+                 geomean.good = mean(r))
+
+```
+
+What have you learned about the effects of environmental stochasticity? Which has more effects on extinction probability: frequent, moderate fluctuations or rarer, more extreme ones? Can you link this to our class discussion of the correlates of rmax variation across primate species? To our discussion of fallback foods?
+
+-- *[enter answer here in a few sentences]*
+
+
+#### Deterministic effects
+
+Finally, let's examine the effects of deterministic changes in the environment. We'll consider two changes in our simulated environment. The first will simulate hunting; the second will simulate a decline in habitat quality of the sort that we might imagine would be associated with climate change. 
+
+##### 1. Hunting
+
+Let's imagine that the population of bears increases five fold, and interest groups lobby to allow controlled hunting of bears in Yellowstone. Proposed off-take rates are 1%, 3%, and 5% of the population annually. We'll use our simple PVA to assess the effects of these off-take rates on extinction risk.
+
+We'll update our simulation model to allow us to compare different hunting rates. Our new function is called `griz_pop_sim_hunt`, and we set the default hunting rate at 1% annually.
+
+```{r echo=FALSE}
+
+griz_pop_sim_hunt <- function(N0 = 5 * N[1], 
+                         K = 500,
+                         viz = TRUE,
+                         hunt = 1) {
+
+stoch.pop  <- matrix(NA, project, runs)
+stoch.pop[1, ] <- N0
+geomean <- mean(r)
+sd.r    <- sd(r)
+
+for (i in 1:runs)
+     {	
+     # looping over 1000 runs of the stochastic model
+          for (t in 2:project){
+               # and looping over 68 years of projection
+               # within each of 1000 runs
+                    stoch.r = rnorm(1, geomean, sd.r)		
+                      # draw a random value for intrinsic rate of increase
+                      # based on the observed r values
+                    stoch.r.dd = stoch.r * ((K - stoch.pop[t -1, i])/K)
+                      # make r density dependent
+                      # by adding term ((K-N)/K)
+                    stoch.pop[t, i] = (stoch.pop[(t  -1), i] + 
+                                      stoch.pop[(t  -1), i] * stoch.r.dd) *
+                      # and project one time step from 
+                      # the current pop size
+                                     ((100 - hunt)/100)
+                      # and add the annual loss due to hunting
+                    if(stoch.pop[t, i] <= threshold) break  		                            
+                     # leave the loop if pop <= threshold
+               }
+     }
+
+# calculate the percent of simulations that go extinct.
+stoch.pop[is.na(stoch.pop)] <-  0   
+percent.extinct <- (runs - length(which(stoch.pop[project, ] 
+                                         > 0))) / runs * 100 
+
+if (viz == TRUE) {
+# plot the simulation
+   plot(stoch.pop[,1] ~ years, 
+        type = "l", xlab = "year", 
+        ylab = "simulated population size", 
+        lwd =  0.5, las = 1,
+        ylim = c(0, 500), 
+        col = ifelse(stoch.pop[68, 1]== 0, 
+                     tRed, tBlack),
+     main =  paste("N0 =", N0, ", K = ", K,
+                   "\n hunting =", hunt, "%",
+                   "\n % extinct =", percent.extinct))
+    for (i in 1:runs){	
+     lines(stoch.pop[,i] ~ years, 
+           type = "l", lwd =  0.5,
+           col = ifelse(stoch.pop[68, i]== 0, 
+                        tRed, tBlack))
+      }
+   }
+return(paste("Percent simulations leading to extinction = ", percent.extinct,"%"))
+}
+
+```
+
+First, we model 1% of the population being killed per year and compare the percent of populations that go extinct under these conditions compared to those that are not hunted.
+
+```{r}
+
+par(mfrow=c(1, 2))
+griz_pop_sim_hunt(hunt = 0)
+griz_pop_sim_hunt(hunt = 1)
+
+```
+
+What happens to extinction risk when we remove 1% of the population each year to simulate 1% off take rates from hunting? 
+
+--*[enter answer here]*
+
+Let's calculate the effects of 3% hunting and 5% hunting on the percent of populations that go extinct (pseudo-extinction risk), and plot them next to 1% off-take rates.
+
+```{r}
+
+par(mfrow = c(1, 3))
+griz_pop_sim_hunt(hunt = 1)
+griz_pop_sim_hunt(hunt = 3)
+griz_pop_sim_hunt(hunt = 5)
+
+```
+
+What happens to extinction risk as we move from 1% to 3% to 5% hunting? Does the relationship between hunting off-take rates and extinction probability scale roughly linearly? In other words, is the risk of extinction associated with 3% or 5% hunting 3 or 5 times higher than 1%?
+
+--*[enter answer here]*
+
+Let's imagine that park management is willing to accept the extinction risk associated with 1% hunting, based on the argument that it would be bring in substantial revenue (that could support conservation management) and the difference in risk between 0% and 1% hunting is small. They are, however, not willing to assume the risk that would be associated with 3% hunting. Based on the simulations we created above, do you think this position makes sense?
+
+--*[enter answer here in a few sentences]*
+
+
+##### 2. Directional habitat change
+
+Finally, let's imagine a directional change in habitat quality (e.g., as might be associated with climate change). Here we will model it as minor annual declines in carrying capacity, K. We leave in demographic stochasticity, but each year reduce K by a small amount. We set the default decline as 0.01% annual decrease in K.
+
+```{r echo=FALSE}
+
+griz_pop_sim_clim <- function(N0 = N[1], 
+                         K = 500,
+                         decline = 0.01,
+                         viz = TRUE) {
+
+stoch.pop  <- matrix(NA, project, runs)
+stoch.pop[1, ] <- N0
+geomean <- mean(r)
+sd.r    <- sd(r)
+for (i in 1:runs)
+     {	
+     # looping over 1000 runs of the stochastic model
+          for (t in 2:project){
+               # and looping over 68 years of projection
+               # within each of 1000 runs
+                    stoch.r = rnorm(1, geomean, sd.r)
+                      # draw a random value for intrinsic rate of increase
+                      # based on the observed r values
+                    K <- max(((100 - decline) / 100) * K, 1)
+                      # change K so it reduces each year by set amount,
+                      # don't let it drop below 1
+                    stoch.r.dd = stoch.r * ((K - stoch.pop[t -1, i])/K)
+                      # make r density dependent
+                      # by adding term ((K-N)/K)
+                    stoch.pop[t, i] = stoch.pop[(t  -1), i] + 
+                                      stoch.pop[(t  -1), i] * stoch.r.dd	  
+                      # and project one time step from 
+                      # the current pop size
+                    if(stoch.pop[t, i] <= threshold) break  		                              # leave the loop if pop <= threshold
+               }
+     }
+
+# calculate the percent of simulations that go extinct.
+stoch.pop[is.na(stoch.pop)] <-  0   
+percent.extinct <- (runs - length(which(stoch.pop[project, ] 
+                                         > 0))) / runs * 100 
+
+if (viz == TRUE) {
+# plot the simulation
+   plot(stoch.pop[,1] ~ years, 
+        type = "l", xlab = "year", 
+        ylab = "simulated population size", 
+        lwd =  0.5, las = 1,
+        ylim = c(0, 500), 
+        col = ifelse(stoch.pop[68, 1]== 0, 
+                     tRed, tBlack),
+     main =  paste("N0 =", N0, ", % decline = ", decline, "% /yr",
+                   "\n % extinct =", percent.extinct))
+    for (i in 1:runs){	
+     lines(stoch.pop[,i] ~ years, 
+           type = "l", lwd =  0.5,
+           col = ifelse(stoch.pop[68, i]== 0, 
+                        tRed, tBlack))
+      }
+   }
+return(paste("Percent simulations leading to extinction = ", percent.extinct,"%"))
+
+}
+
+```
+
+Here we compare the effects of 0.001%, 0.01%, and 0.1% annual declines in carrying capacity.
+
+```{r}
+
+par(mfrow=c(1, 3))
+griz_pop_sim_clim(decline = 0.001)
+griz_pop_sim_clim(decline = 0.01)
+griz_pop_sim_clim(decline = 0.1)
+
+```
+
+Even at very low rates of decline, deterministic annual declines in carrying capacity seem to have very negative effects. Why do you think this is?
+
+--*[enter answer here in two sentences]*
+
+#### Submit your answers
+
+Knit this document to an HTML file and submit it on Canvas. Simply click the **Knit** button and an *.html document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
