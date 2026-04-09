@@ -4,7 +4,7 @@
 # K-Fold cross-validation for linear models
 # @param data:     Data frame
 # @param formula:  Model formula
-# @param k:         Number of folds
+# @param k:        Number of folds
 # @return a vector of mean squared errors (MSE)
 
 k_fold_cross_validation <- function(data, formula, k = 5) {
