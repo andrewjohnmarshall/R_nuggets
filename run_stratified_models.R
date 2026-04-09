@@ -3,9 +3,9 @@
 # and returns a clean, "tidy" dataframe of results
 
 #  Run stratified linear models
-# @param data A dataframe
-# @param group_var The column to split the data by (quoted)
-# @param formula A formula object for the regression
+# @param data:	     a dataframe
+# @param group_var:  the column to split the data by (quoted)
+# @param formula:	 a formula object for the regression
 # @return A nested tibble with model coefficients and statistics
 
 run_stratified_models <- function(data, group_var, formula) {
@@ -26,5 +26,5 @@ run_stratified_models <- function(data, group_var, formula) {
     select(-data, -model)
 }
 
-# Example usage:
+# e.g.,
 # run_stratified_models(mtcars, "cyl", mpg ~ wt + hp)

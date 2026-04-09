@@ -2,9 +2,9 @@
 # initially a teaching aid for ANTHRBIO 463
 
 # K-Fold cross-validation for linear models
-# @param data:     Data frame
-# @param formula:  Model formula
-# @param k:        Number of folds
+# @param data:     data frame
+# @param formula:  model formula
+# @param k:        number of folds
 # @return a vector of mean squared errors (MSE)
 
 k_fold_cross_validation <- function(data, formula, k = 5) {
@@ -30,4 +30,5 @@ k_fold_cross_validation <- function(data, formula, k = 5) {
   return(list(fold_mse = mse_results, mean_mse = mean(mse_results)))
 }
 
-# Example: k_fold_cross_validation(mtcars, mpg ~ hp + wt, k = 5)
+# e.g.,
+# k_fold_cross_validation(mtcars, mpg ~ hp + wt, k = 5)

@@ -11,7 +11,7 @@ compare_models <- function(...) {
   mods <- list(...)
   names(mods) <- as.character(match.call()[-1])
   
-  # Extract metrics using a loop-free 'sapply'
+# extract metrics
   metrics <- sapply(mods, function(m) {
     s <- summary(m)
     c(R2 = s$r.squared, 
